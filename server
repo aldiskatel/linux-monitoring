@@ -1,0 +1,81 @@
+import psutil
+import json
+import time
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import os
+
+# Fungsi untuk mendapatkan total bytes terkirim dan diterima
+def get_net_io():
+    net_io = psutil.net_io_counters()
+    return net_io.bytes_sent, net_io.bytes_recv
+
+class MyHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == '/data':
+            self.handle_data_request()
+        else:
+            self.handle_file_request()
+
+    def handle_data_request(self):
+        cpu_usage = psutil.cpu_percent()
+        ram_usage = psutil.virtual_memory().percent
+        disk_usage = psutil.disk_usage('/').percent
+
+        bytes_sent_start, bytes_recv_start = get_net_io()
+        time.sleep(1)
+        bytes_sent_end, bytes_recv_end = get_net_io()
+
+        upload_speed = bytes_sent_end - bytes_sent_start
+        download_speed = bytes_recv_end - bytes_recv_start
+
+        top_processes = []
+
+        for process in sorted(psutil.process_iter(attrs=['pid', 'name', 'cpu_percent']), key=lambda x: x.info['cpu_percent'], reverse=True)[:5]:
+            top_processes.append({
+                'pid': process.info['pid'],
+                'name': process.info['name'],
+                'cpu_percent': process.info['cpu_percent']
+            })
+
+        data = {
+            'cpu_usage': cpu_usage,
+            'ram_usage': ram_usage,
+            'disk_usage': disk_usage,
+            'upload_speed': upload_speed,
+            'download_speed': download_speed,
+            'top_processes': top_processes
+        }
+
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self.end_headers()
+        self.wfile.write(json.dumps(data).encode('utf-8'))
+
+    def handle_file_request(self):
+        if self.path == '/':
+            self.path = '/index.html'
+        
+        try:
+            with open(os.getcwd() + self.path, 'rb') as file:
+                self.send_response(200)
+                self.send_header('Content-type', self.guess_mime_type())
+                self.end_headers()
+                self.wfile.write(file.read())
+        except IOError:
+            self.send_error(404, 'File Not Found: %s' % self.path)
+
+    def guess_mime_type(self):
+        if self.path.endswith(".html"):
+            return 'text/html'
+        elif self.path.endswith(".css"):
+            return 'text/css'
+        elif self.path.endswith(".js"):
+            return 'application/javascript'
+        else:
+            return 'text/plain'
+
+if __name__ == '__main__':
+    server_address = ('', 8080)
+    httpd = HTTPServer(server_address, MyHandler)
+    print('Web server berjalan di port 8080...')
+    httpd.serve_forever()

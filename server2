@@ -1,0 +1,141 @@
+import psutil
+import json
+import time
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import os
+import threading
+
+# Fungsi untuk mendapatkan total bytes terkirim dan diterima
+def get_net_io():
+    net_io = psutil.net_io_counters()
+    return net_io.bytes_sent, net_io.bytes_recv
+
+# Fungsi untuk mendapatkan top 5 aplikasi yang mengkonsumsi jaringan
+# 'local_address': conn.laddr.ip,
+# 'remote_address': conn.raddr.ip,
+def get_network_app_usage():
+    network_app_usage = []
+    connections = psutil.net_connections(kind='inet')
+    for conn in connections:
+        if conn.pid and conn.raddr:
+            app_name = psutil.Process(conn.pid).name()
+            network_app_usage.append({
+                'app_name': app_name,
+                'local_address': '<code>' + conn.laddr.ip + '</code>',
+                'remote_address': '<code style="color:red">PROTECTED</code>',
+                'status': conn.status
+            })
+    # Hanya kembalikan top 5 berdasarkan nama aplikasi sebagai contoh
+    return sorted(network_app_usage[:5], key=lambda x: x['app_name'], reverse=True)
+
+# Fungsi untuk memantau penggunaan jaringan
+def monitor_network(httpd):
+    while True:
+        bytes_sent_start, bytes_recv_start = get_net_io()
+        time.sleep(1)
+        bytes_sent_end, bytes_recv_end = get_net_io()
+
+        upload_speed = bytes_sent_end - bytes_sent_start
+        download_speed = bytes_recv_end - bytes_recv_start
+
+        httpd.RequestHandlerClass.upload_speed = upload_speed
+        httpd.RequestHandlerClass.download_speed = download_speed
+
+# Fungsi untuk memantau top 5 proses yang mengkonsumsi CPU
+def monitor_top_processes(httpd):
+    while True:
+        top_processes = []
+
+        for process in sorted(psutil.process_iter(attrs=['pid', 'name', 'cpu_percent']), key=lambda x: x.info['cpu_percent'], reverse=True)[:5]:
+            top_processes.append({
+                'pid': process.info['pid'],
+                'name': process.info['name'],
+                'cpu_percent': process.info['cpu_percent']
+            })
+
+        httpd.RequestHandlerClass.top_processes = top_processes
+
+# Fungsi untuk memformat disk usage dengan satuan yang sesuai
+def format_disk_usage(usage, total):
+    units = ['B', 'KB', 'MB', 'GB', 'TB']
+    unit_index = 0
+    while total >= 1024 and unit_index < len(units) - 1:
+        total /= 1024
+        unit_index += 1
+    return f"{usage:.1f}% ({usage * total / 100:.1f}{units[unit_index]} / {total:.1f}{units[unit_index]})"
+
+class MyHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == '/data':
+            self.handle_data_request()
+        else:
+            self.handle_file_request()
+
+    def handle_data_request(self):
+        cpu_usage = psutil.cpu_percent()
+        ram_usage = psutil.virtual_memory().percent
+        disk_usage = format_disk_usage(psutil.disk_usage('/').percent, psutil.disk_usage('/').total)
+
+        bytes_sent_start, bytes_recv_start = get_net_io()
+        time.sleep(1)
+        bytes_sent_end, bytes_recv_end = get_net_io()
+
+        upload_speed = bytes_sent_end - bytes_sent_start
+        download_speed = bytes_recv_end - bytes_recv_start
+
+        top_processes = []
+
+        for process in sorted(psutil.process_iter(attrs=['pid', 'name', 'cpu_percent']), key=lambda x: x.info['cpu_percent'], reverse=True)[:5]:
+            top_processes.append({
+                'pid': process.info['pid'],
+                'name': process.info['name'],
+                'cpu_percent': process.info['cpu_percent']
+            })
+
+        network_app_usage = get_network_app_usage()
+
+        data = {
+            'cpu_usage': cpu_usage,
+            'ram_usage': ram_usage,
+            'disk_usage': disk_usage,
+            'upload_speed': upload_speed,
+            'download_speed': download_speed,
+            'top_processes': top_processes,
+            'network_app_usage': network_app_usage
+        }
+
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self.end_headers()
+        self.wfile.write(json.dumps(data).encode('utf-8'))
+
+    def guess_mime_type(self):
+        if self.path.endswith(".html"):
+            return 'text/html'
+        elif self.path.endswith(".css"):
+            return 'text/css'
+        elif self.path.endswith(".js"):
+            return 'application/javascript'
+        else:
+            return 'text/plain'
+
+    def handle_file_request(self):
+        if self.path == '/':
+            self.path = '/index.html'
+        
+        try:
+            with open(os.getcwd() + self.path, 'rb') as file:
+                self.send_response(200)
+                self.send_header('Content-type', self.guess_mime_type())
+                self.end_headers()
+                self.wfile.write(file.read())
+        except IOError:
+            self.send_error(404, 'File Not Found: %s' % self.path)
+
+if __name__ == '__main__':
+    server_address = ('', 8080)
+    httpd = HTTPServer(server_address, MyHandler)
+    print('Web server berjalan di port 8080...')
+    threading.Thread(target=monitor_network, args=(httpd.RequestHandlerClass,)).start()
+    threading.Thread(target=monitor_top_processes, args=(httpd.RequestHandlerClass,)).start()
+    httpd.serve_forever()
