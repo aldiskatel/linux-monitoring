@@ -4,6 +4,7 @@ import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import os
 import threading
+import subprocess
 
 # Fungsi untuk mendapatkan total bytes terkirim dan diterima
 def get_net_io():
@@ -55,6 +56,17 @@ def monitor_top_processes(httpd):
 
         httpd.RequestHandlerClass.top_processes = top_processes
 
+def get_fail2ban_ssh_status():
+    try:
+        # Gunakan subprocess untuk menjalankan perintah dan mendapatkan outputnya
+        result = subprocess.run(['fail2ban-client', 'status', 'sshd'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if result.returncode == 0:
+            return result.stdout
+        else:
+            return "Fail2Ban status for SSH not available: " + result.stderr
+    except Exception as e:
+        return "Failed to get Fail2Ban status for SSH: " + str(e)
+    
 # Fungsi untuk memformat disk usage dengan satuan yang sesuai
 def format_disk_usage(usage, total):
     units = ['B', 'KB', 'MB', 'GB', 'TB']
@@ -101,7 +113,8 @@ class MyHandler(BaseHTTPRequestHandler):
             'upload_speed': upload_speed,
             'download_speed': download_speed,
             'top_processes': top_processes,
-            'network_app_usage': network_app_usage
+            'network_app_usage': network_app_usage,
+            'fail2ban_ssh_status': get_fail2ban_ssh_status()
         }
 
         self.send_response(200)

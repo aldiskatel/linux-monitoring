@@ -31,11 +31,15 @@ function formatSpeed(speed) {
 function displayData(data) {
     const systemStats = document.getElementById('system-stats');
     systemStats.innerHTML = `
+        <div class="stats-item"><strong>Datacenter:</strong> Banjarbaru, Kalimantan Selatan, Indonesia(ID)</div>
         <div class="stats-item"><strong>CPU Usage:</strong> ${data.cpu_usage}%</div>
         <div class="stats-item"><strong>RAM Usage:</strong> ${data.ram_usage}%</div>
         <div class="stats-item"><strong>Disk Usage:</strong> ${data.disk_usage}</div>
         <div class="stats-item"><strong>Network:</strong> U <code>${formatSpeed(data.upload_speed)}</code> | D <code>${formatSpeed(data.download_speed)}</code></div>
-    `;
+        <div class="stats-item"><strong>Firewall:</strong><br><code>${data.fail2ban_ssh_status}</code>
+        </div>
+
+        `;
 
     displayNetworkAppUsage(data);
     displayTopProcesses(data);
